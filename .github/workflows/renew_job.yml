@@ -27,8 +27,6 @@ jobs:
       - name: 安装依赖
         run: pip install -r requirements.txt
 
-      - name: 安装 CloakBrowser 浏览器二进制
-        run: python -c "from cloakbrowser import install; install()"
 
       - name: 运行续期脚本
         env:
