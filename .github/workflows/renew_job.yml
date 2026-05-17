@@ -13,8 +13,8 @@ jobs:
 
       - name: 检查 Secrets 是否设置
         run: |
-          if [ -z "${{ secrets.ZAMPTO_USERNAME }}" ] || [ -z "${{ secrets.PASSWORD }}" ]; then
-            echo "❌ ZAMPTO_USERNAME 或 PASSWORD 未设置，终止执行。"
+          if [ -z "${{ secrets.USERNAME }}" ] || [ -z "${{ secrets.PASSWORD }}" ]; then
+            echo "❌ USERNAME 或 PASSWORD 未设置，终止执行。"
             exit 1
           fi
           echo "✅ 账号信息已设置"
@@ -32,7 +32,7 @@ jobs:
 
       - name: 运行续期脚本
         env:
-          ZAMPTO_USERNAME: ${{ secrets.ZAMPTO_USERNAME }}
+          ZAMPTO_USER: ${{ secrets.USERNAME }}
           PASSWORD: ${{ secrets.PASSWORD }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_USERID: ${{ secrets.TG_USERID }}
