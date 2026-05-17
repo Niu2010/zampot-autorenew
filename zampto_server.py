@@ -46,13 +46,15 @@ user_id = os.getenv("TG_USERID", "")
 # chrome代理
 chrome_proxy = os.getenv("CHROME_PROXY")
 
+# 服务器 ID 列表，逗号分隔，例如："6119,6120,6121"
+# 在 GitHub Actions Secrets 中设置 SERVER_IDS
+_server_ids_raw = os.getenv("SERVER_IDS", "")
+server_ids = [s.strip() for s in _server_ids_raw.split(",") if s.strip()]
+
 # 全局常量
 signurl = "https://auth.zampto.net/sign-in"
 signurl_end = "auth.zampto.net/sign-in"
-homeurl = "https://dash.zampto.net/homepage"
-homeurlend = "/homepage"
-overviewurl = "https://dash.zampto.net/overview"
-overviewurl_end = "/overview"
+serverbaseurl = "https://dash.zampto.net/server?id="
 
 # 全局浏览器对象
 browser = None
@@ -195,51 +197,18 @@ async def login():
         error_exit(f"登录步骤失败: {e}")
 
 
-async def open_overview():
-    global page
-    std_logger.info("打开 Overview 页面")
-    if page.url.startswith(homeurl):
-        try:
-            overview = page.locator('a:has(span:text("Servers Overview"))')
-            if await overview.is_visible(timeout=5000):
-                await overview.click()
-        except Exception:
-            await page.goto(overviewurl)
-    else:
-        await page.goto(overviewurl)
-
-    await wait_for(7, 10)
-
-    try:
-        deny = page.locator("button.fc-button.fc-cta-do-not-consent")
-        if await deny.is_visible(timeout=5000):
-            await deny.click()
-            print('发现 cookie 协议，已跳过')
-    except Exception:
-        pass
-
-
 async def open_server_tab():
     global page, info
     std_logger.info("开始续期服务器")
 
-    links = page.locator("a[href*='server?id']")
-    count = await links.count()
+    if not server_ids:
+        error_exit("⚠️ SERVER_IDS 环境变量未设置，请在 Secrets 中添加服务器 ID，例如：6119 或 6119,6120")
 
-    if count == 0:
-        await capture_screenshot("serverlist_overview.png")
-        error_exit("⚠️ server_list 为空，跳过服务器续期流程")
+    std_logger.info(f"找到 {len(server_ids)} 台服务器：{server_ids}")
 
-    server_list = []
-    for i in range(count):
-        href = await links.nth(i).get_attribute("href")
-        if href:
-            server_list.append(href)
-
-    std_logger.info(f"找到 {len(server_list)} 台服务器")
-
-    for s in server_list:
-        await page.goto(s)
+    for sid in server_ids:
+        s = f"{serverbaseurl}{sid}"
+        await page.goto(s, wait_until="networkidle")
         await wait_for(3, 5)
 
         try:
@@ -260,7 +229,7 @@ async def open_server_tab():
             if server_name:
                 info += f'✅ 服务器 [{server_name}] 续期成功\n'
                 std_logger.info('✅ 服务器续期成功')
-                await asyncio.sleep(5)  # 修复：改为 await asyncio.sleep，不阻塞事件循环
+                await asyncio.sleep(5)
                 try:
                     left_time = page.locator('#nextRenewalTime')
                     if await left_time.is_visible(timeout=10000):
@@ -269,23 +238,20 @@ async def open_server_tab():
                 except Exception:
                     pass
             else:
-                info += '❌ 服务器续期失败\n'
-                error_exit('❌ 服务器续期失败')
+                info += f'❌ 服务器 [{sid}] 续期失败\n'
+                error_exit(f'❌ 服务器 [{sid}] 续期失败')
         except SystemExit:
             raise
         except Exception as e:
             info += f'❌ 检查续期结果失败: {e}\n'
             error_exit(f'❌ 检查续期结果失败: {e}')
 
-        ser_id = get_id_from_url(s)
-        await capture_screenshot(f"{ser_id}.png")
+        await capture_screenshot(f"{sid}.png")
 
 
 steps = [
-    {"match": "/newtab/", "action": open_web, "name": "open_web"},
     {"match": signurl_end, "action": login, "name": "account"},
-    {"match": homeurlend, "action": open_overview, "name": "open_overview"},
-    {"match": overviewurl_end, "action": open_server_tab, "name": "open_server_tab"},
+    {"match": "dash.zampto.net", "action": open_server_tab, "name": "open_server_tab"},
 ]
 
 
@@ -302,30 +268,21 @@ def mask_url_domain_last8(url: str, keep: int = 8) -> str:
 async def continue_execution():
     global page
 
-    # 修复：先主动打开登录页，再做步骤匹配，避免依赖 /newtab/ 判断
     await open_web()
-    realurl = page.url
-    std_logger.debug(f"当前页面 URL: {mask_url_domain_last8(realurl)}")
+    std_logger.debug(f"当前页面 URL: {mask_url_domain_last8(page.url)}")
 
-    # 登录页之后的步骤（跳过 open_web，它已经执行了）
-    remaining_steps = steps[1:]
+    # 执行登录
+    std_logger.info("执行步骤 1: account")
+    await login()
+    std_logger.debug("步骤 account 执行完成")
+    await wait_for(3, 5)
+    await capture_screenshot("account_1.png")
 
-    for i, step in enumerate(remaining_steps, start=1):
-        step_name = step.get("name", f"step_{i}")
-        std_logger.info(f"执行步骤 {i}: {step_name}")
-        try:
-            await step["action"]()
-            std_logger.debug(f"步骤 {step_name} 执行完成")
-            await wait_for(5, 7)
-            await capture_screenshot(f"{step_name}_{i}.png")
-            if i < len(remaining_steps):
-                await wait_for(3)
-        except SystemExit:
-            raise
-        except Exception as e:
-            std_logger.error(f"步骤 {step_name} 执行失败: {e}")
-            error_exit(f"步骤 {step_name} 执行失败: {e}")
-            return 1
+    # 直接续期
+    std_logger.info("执行步骤 2: open_server_tab")
+    await open_server_tab()
+    std_logger.debug("步骤 open_server_tab 执行完成")
+    await capture_screenshot("open_server_tab_2.png")
 
     std_logger.info("所有步骤执行完成")
     return 0
