@@ -1,0 +1,48 @@
+name: Zampto Renew
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '28 5 * * *'  # 每天 UTC 05:28（北京时间 13:28）
+
+jobs:
+  run-zampto:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 检查 Secrets 是否设置
+        run: |
+          if [ -z "${{ secrets.USERNAME }}" ] || [ -z "${{ secrets.PASSWORD }}" ]; then
+            echo "❌ USERNAME 或 PASSWORD 未设置，终止执行。"
+            exit 1
+          fi
+          echo "✅ 账号信息已设置"
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 安装 CloakBrowser 浏览器二进制
+        run: python -c "from cloakbrowser import install; install()"
+
+      - name: 运行续期脚本
+        env:
+          USERNAME: ${{ secrets.USERNAME }}
+          PASSWORD: ${{ secrets.PASSWORD }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_USERID: ${{ secrets.TG_USERID }}
+          CHROME_PROXY: ${{ secrets.CHROME_PROXY }}
+        run: python zampto_server.py -r 3
+
+      - name: 上传截图（调试用）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots/
+          retention-days: 3
