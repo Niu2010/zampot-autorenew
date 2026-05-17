@@ -44,10 +44,8 @@ info = ""
 # tg通知
 tgbot_token = os.getenv("TG_TOKEN", "")
 user_id = os.getenv("TG_USERID", "")
-# chrome的代理
+# chrome代理
 chrome_proxy = os.getenv("CHROME_PROXY")
-# 用来判断登录是否成功
-login_deny = False
 
 # 全局常量
 signurl = "https://auth.zampto.net/sign-in"
@@ -83,47 +81,31 @@ if not user_id:
 def check_google():
     try:
         response = requests.get("https://www.google.com", timeout=5)
-        if response.status_code == 200:
-            return True
-        else:
-            print(f"⚠️ 无法访问 Google，tg通知将不起作用，状态码：{response.status_code}")
-            return False
+        return response.status_code == 200
     except requests.exceptions.RequestException as e:
-        print(f"❌ ⚠️ 无法访问 Google，tg通知将不起作用：{e}")
+        print(f"❌ 无法访问 Google：{e}")
         return False
 
 
 def tg_notifacation(meg):
-    global std_logger
     url = f"https://api.telegram.org/bot{tgbot_token}/sendMessage"
-    payload = {
-        "chat_id": user_id,
-        "text": meg
-    }
-    response = requests.post(url, data=payload)
-    if response.status_code != 200:
-        std_logger.error("❌ HTTP 请求失败")
-        return False
-    result = response.json()
-    if result.get("ok"):
-        std_logger.info("✅ Telegram 发送成功")
-        return True
-    else:
-        std_logger.error("❌ Telegram 返回错误")
-        return False
+    payload = {"chat_id": user_id, "text": meg}
+    try:
+        response = requests.post(url, data=payload)
+        if response.status_code == 200 and response.json().get("ok"):
+            std_logger.info("✅ Telegram 发送成功")
+            return True
+    except Exception as e:
+        std_logger.error(f"❌ Telegram 发送失败: {e}")
+    return False
 
 
 def exit_process(num=0):
-    global info, tgbot_token, browser
+    global info, tgbot_token
     if info and info.strip():
         info = f"ℹ️ Zampto服务器续期通知\n用户：{username}\n{info}"
         if check_google() and tgbot_token and user_id:
             tg_notifacation(info)
-    if browser:
-        try:
-            browser.close()
-        except Exception:
-            pass
     exit(num)
 
 
@@ -145,14 +127,13 @@ async def wait_for(a, b=None):
     if b is None:
         b = a
     wait_time = random.uniform(a, b)
-    std_logger.debug(f"即将等待 {wait_time:.2f} 秒（范围：{a} 到 {b}）...")
+    std_logger.debug(f"即将等待 {wait_time:.2f} 秒")
     await asyncio.sleep(wait_time)
-    std_logger.debug(f"等待结束：{wait_time:.2f} 秒")
 
 
-def setup():
+async def setup():
     global browser, page
-    from cloakbrowser import launch
+    from cloakbrowser.async_api import launch as async_launch
 
     launch_args = {
         "headless": True,
@@ -160,65 +141,57 @@ def setup():
     }
 
     if chrome_proxy:
-        launch_args["proxy"] = {
-            "server": chrome_proxy
-        }
-        std_logger.info(f"✅ 代理已配置")
+        launch_args["proxy"] = {"server": chrome_proxy}
+        std_logger.info("✅ 代理已配置")
 
-    browser = launch(**launch_args)
-    page = browser.new_page()
+    browser = await async_launch(**launch_args)
+    page = await browser.new_page()
     std_logger.info("✅ CloakBrowser 启动成功")
 
 
 async def open_web():
     global page
     std_logger.info("打开登录页面")
-    page.goto(signurl)
+    await page.goto(signurl)
     await wait_for(10, 15)
 
 
 async def login():
-    global page, info, login_deny
+    global page, info
     std_logger.info("开始登录")
-
     try:
-        # 等待用户名输入框
-        page.wait_for_selector('[autocomplete="username email"]', timeout=30000)
+        await page.wait_for_selector('[autocomplete="username email"]', timeout=30000)
         u = page.locator('[autocomplete="username email"]')
-        u.fill("")
+        await u.fill("")
         await asyncio.sleep(1)
-        u.type(username, delay=random.randint(50, 150))
+        await u.type(username, delay=random.randint(50, 150))
 
-        # 点击下一步
-        page.locator('button[type="submit"][name="submit"]').click()
+        await page.locator('button[type="submit"][name="submit"]').click()
         await asyncio.sleep(2)
 
-        # 等待密码框
-        page.wait_for_selector('[type="password"]', timeout=30000)
+        await page.wait_for_selector('[type="password"]', timeout=30000)
         p = page.locator('[type="password"]')
-        p.type(password, delay=random.randint(50, 150))
+        await p.type(password, delay=random.randint(50, 150))
 
-        # 点击登录
         await asyncio.sleep(1)
-        page.locator('button[type="submit"][name="submit"]').click()
+        await page.locator('button[type="submit"][name="submit"]').click()
 
         await wait_for(10, 15)
 
         if signurl_end in page.url:
-            msg = f"⚠️ {username}登录失败，请检查认证信息是否正确。"
-            login_deny = True
-            error_exit(msg)
+            error_exit(f"⚠️ {username}登录失败，请检查认证信息是否正确。")
         else:
             std_logger.info("✅ 登录成功")
 
-        # 跳过可选步骤
         try:
             skip = page.locator('div[role="button"]:has-text("Skip")')
-            if skip.is_visible(timeout=3000):
-                skip.click()
+            if await skip.is_visible(timeout=3000):
+                await skip.click()
         except Exception:
             pass
 
+    except SystemExit:
+        raise
     except Exception as e:
         error_exit(f"登录步骤失败: {e}")
 
@@ -229,22 +202,19 @@ async def open_overview():
     if page.url.startswith(homeurl):
         try:
             overview = page.locator('a:has(span:text("Servers Overview"))')
-            if overview.is_visible(timeout=5000):
-                std_logger.info("找到 overview 入口，点击")
-                overview.click()
+            if await overview.is_visible(timeout=5000):
+                await overview.click()
         except Exception:
-            std_logger.error("没有找到 overview 入口，回退到直接访问")
-            page.goto(overviewurl)
+            await page.goto(overviewurl)
     else:
-        page.goto(overviewurl)
+        await page.goto(overviewurl)
 
     await wait_for(7, 10)
 
-    # 处理 cookie 弹窗
     try:
         deny = page.locator("button.fc-button.fc-cta-do-not-consent")
-        if deny.is_visible(timeout=5000):
-            deny.click()
+        if await deny.is_visible(timeout=5000):
+            await deny.click()
             print('发现 cookie 协议，已跳过')
     except Exception:
         pass
@@ -254,9 +224,8 @@ async def open_server_tab():
     global page, info
     std_logger.info("开始续期服务器")
 
-    # 获取所有服务器链接
     links = page.locator("a[href*='server?id']")
-    count = links.count()
+    count = await links.count()
 
     if count == 0:
         capture_screenshot("serverlist_overview.png")
@@ -264,48 +233,47 @@ async def open_server_tab():
 
     server_list = []
     for i in range(count):
-        href = links.nth(i).get_attribute("href")
+        href = await links.nth(i).get_attribute("href")
         if href:
             server_list.append(href)
 
     std_logger.info(f"找到 {len(server_list)} 台服务器")
 
     for s in server_list:
-        page.goto(s)
+        await page.goto(s)
         await wait_for(3, 5)
 
-        # 点击 renew 按钮
         try:
             renew_btn = page.locator("a[onclick*='handleServerRenewal']")
-            if renew_btn.is_visible(timeout=15000):
+            if await renew_btn.is_visible(timeout=15000):
                 std_logger.debug("找到 renew 按钮，点击")
-                renew_btn.click()
+                await renew_btn.click()
                 await wait_for(3, 5)
             else:
                 std_logger.debug("没找到 renew 按钮，无事发生")
         except Exception:
             std_logger.debug("没找到 renew 按钮，无事发生")
 
-        # 检查续期结果
         try:
             name_span = page.locator("span.server-name")
-            name_span.wait_for(timeout=15000)
-            server_name = name_span.inner_html()
+            await name_span.wait_for(timeout=15000)
+            server_name = await name_span.inner_html()
             if server_name:
                 info += f'✅ 服务器 [{server_name}] 续期成功\n'
-                std_logger.info(f'✅ 服务器续期成功')
+                std_logger.info('✅ 服务器续期成功')
                 sleep(5)
-                # 报告剩余时间
                 try:
                     left_time = page.locator('#nextRenewalTime')
-                    if left_time.is_visible(timeout=10000):
-                        info += f'🕒 [服务器: {server_name}] 存活期限：{left_time.inner_html()}\n'
-                        std_logger.info(f'🕒 存活期限已记录')
+                    if await left_time.is_visible(timeout=10000):
+                        lt = await left_time.inner_html()
+                        info += f'🕒 [服务器: {server_name}] 存活期限：{lt}\n'
                 except Exception:
                     pass
             else:
-                info += f'❌ 服务器续期失败\n'
+                info += '❌ 服务器续期失败\n'
                 error_exit('❌ 服务器续期失败')
+        except SystemExit:
+            raise
         except Exception as e:
             info += f'❌ 检查续期结果失败: {e}\n'
             error_exit(f'❌ 检查续期结果失败: {e}')
@@ -333,22 +301,17 @@ def mask_url_domain_last8(url: str, keep: int = 8) -> str:
 
 
 async def continue_execution():
-    global page, std_logger
+    global page
     realurl = page.url
-    url = mask_url_domain_last8(realurl)
-    std_logger.debug(f"当前页面 URL: {url}")
+    std_logger.debug(f"当前页面 URL: {mask_url_domain_last8(realurl)}")
 
     start_index = 0
-    current_step_name = "unknown"
-
     for i, step in enumerate(steps):
         if step["match"] in realurl:
             start_index = i
-            current_step_name = step.get("name", f"step_{i}")
-            std_logger.info(f"检测到当前步骤: {current_step_name}")
+            std_logger.info(f"检测到当前步骤: {step['name']}")
             break
     else:
-        std_logger.warning(f"未找到匹配的步骤，URL: {url}")
         error_exit("没有匹配的步骤，退出")
 
     std_logger.info(f"从步骤 {start_index} 开始执行")
@@ -356,21 +319,14 @@ async def continue_execution():
     for i, step in enumerate(steps[start_index:], start=start_index):
         step_name = step.get("name", f"step_{i}")
         std_logger.info(f"执行步骤 {i}: {step_name}")
-        action = step["action"]
         try:
-            result = action()
-            if asyncio.iscoroutine(result):
-                await result
-
+            await step["action"]()
             std_logger.debug(f"步骤 {step_name} 执行完成")
             await wait_for(5, 7)
-
             capture_screenshot(f"{step_name}_{i}.png")
-
             if i < len(steps) - 1:
                 await wait_for(3)
-
-        except SystemExit as e:
+        except SystemExit:
             raise
         except Exception as e:
             std_logger.error(f"步骤 {step_name} 执行失败: {e}")
@@ -382,9 +338,9 @@ async def continue_execution():
 
 
 async def main():
-    global std_logger, iargs
+    global browser
     exit_code = 0
-    setup()
+    await setup()
     try:
         exit_code = await continue_execution()
     except SystemExit as e:
@@ -394,6 +350,11 @@ async def main():
         exit_code = 1
         print(f"执行过程中出现错误: {e}")
     finally:
+        if browser:
+            try:
+                await browser.close()
+            except Exception:
+                pass
         return exit_code
 
 
