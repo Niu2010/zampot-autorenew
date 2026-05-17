@@ -212,7 +212,7 @@ async def open_server_tab():
 
         # 等待 renew 按钮真正渲染出来，最多等 30 秒
         try:
-            await page.wait_for_selector("a[onclick*='handleServerRenewal']", timeout=30000)
+            await page.wait_for_selector('a.action-purple', timeout=30000)
         except Exception:
             std_logger.debug(f"服务器 [{sid}] 页面未出现 renew 按钮，跳过")
             info += f'⚠️ 服务器 [{sid}] 未找到续期按钮，可能已续期或无需续期\n'
@@ -222,7 +222,7 @@ async def open_server_tab():
         await wait_for(2, 3)
 
         try:
-            renew_btn = page.locator("a[onclick*='handleServerRenewal']")
+            renew_btn = page.locator('a.action-purple')
             std_logger.debug("找到 renew 按钮，点击")
             await renew_btn.click()
             await wait_for(3, 5)
