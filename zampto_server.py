@@ -5,7 +5,6 @@ import logging
 import random
 import requests
 from datetime import datetime
-from time import sleep
 import argparse
 from urllib.parse import urlparse, parse_qs
 
@@ -36,7 +35,9 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 std_logger = logging.getLogger(__name__)
 
 # 登录信息
-username = os.getenv("USERNAME")
+# 注意：避免使用 USERNAME，因为 Linux/GitHub Actions 中该变量为系统保留变量
+# 在 workflow 中请将 Secret 名改为 ZAMPTO_USERNAME，env 中映射为 ZAMPTO_USERNAME
+username = os.getenv("ZAMPTO_USERNAME")
 password = os.getenv("PASSWORD")
 
 # 通知
@@ -68,8 +69,8 @@ def error_exit(msg):
 
 
 if not username or not password:
-    std_logger.warning("💡 请设置环境变量 USERNAME 和 PASSWORD")
-    error_exit("❌ 缺少必要的环境变量 USERNAME 或 PASSWORD。")
+    std_logger.warning("💡 请设置环境变量 ZAMPTO_USERNAME 和 PASSWORD")
+    error_exit("❌ 缺少必要的环境变量 ZAMPTO_USERNAME 或 PASSWORD。")
 
 if not tgbot_token:
     std_logger.warning("⚠️ 环境变量 TG_TOKEN 未设置，Telegram 通知功能将无法使用。")
@@ -109,7 +110,7 @@ def exit_process(num=0):
     exit(num)
 
 
-def capture_screenshot(file_name=None, save_dir='screenshots'):
+async def capture_screenshot(file_name=None, save_dir='screenshots'):
     global page
     os.makedirs(save_dir, exist_ok=True)
     if not file_name:
@@ -117,7 +118,7 @@ def capture_screenshot(file_name=None, save_dir='screenshots'):
         file_name = f'screenshot_{timestamp}.png'
     full_path = os.path.join(save_dir, file_name)
     try:
-        page.screenshot(path=full_path, full_page=True)
+        await page.screenshot(path=full_path, full_page=True)  # 修复：改为 await
         print(f"📸 截图已保存：{full_path}")
     except Exception as e:
         print(f"⚠️ 截图失败：{e}")
@@ -133,7 +134,7 @@ async def wait_for(a, b=None):
 
 async def setup():
     global browser, page
-    from cloakbrowser.async_api import launch as async_launch
+    from cloakbrowser import launch_async  # 修复：正确的导入路径
 
     launch_args = {
         "headless": True,
@@ -141,10 +142,10 @@ async def setup():
     }
 
     if chrome_proxy:
-        launch_args["proxy"] = {"server": chrome_proxy}
+        launch_args["proxy"] = chrome_proxy  # 修复：proxy 直接传字符串，不是 dict
         std_logger.info("✅ 代理已配置")
 
-    browser = await async_launch(**launch_args)
+    browser = await launch_async(**launch_args)
     page = await browser.new_page()
     std_logger.info("✅ CloakBrowser 启动成功")
 
@@ -228,7 +229,7 @@ async def open_server_tab():
     count = await links.count()
 
     if count == 0:
-        capture_screenshot("serverlist_overview.png")
+        await capture_screenshot("serverlist_overview.png")
         error_exit("⚠️ server_list 为空，跳过服务器续期流程")
 
     server_list = []
@@ -261,7 +262,7 @@ async def open_server_tab():
             if server_name:
                 info += f'✅ 服务器 [{server_name}] 续期成功\n'
                 std_logger.info('✅ 服务器续期成功')
-                sleep(5)
+                await asyncio.sleep(5)  # 修复：改为 await asyncio.sleep，不阻塞事件循环
                 try:
                     left_time = page.locator('#nextRenewalTime')
                     if await left_time.is_visible(timeout=10000):
@@ -279,7 +280,7 @@ async def open_server_tab():
             error_exit(f'❌ 检查续期结果失败: {e}')
 
         ser_id = get_id_from_url(s)
-        capture_screenshot(f"{ser_id}.png")
+        await capture_screenshot(f"{ser_id}.png")
 
 
 steps = [
@@ -302,29 +303,24 @@ def mask_url_domain_last8(url: str, keep: int = 8) -> str:
 
 async def continue_execution():
     global page
+
+    # 修复：先主动打开登录页，再做步骤匹配，避免依赖 /newtab/ 判断
+    await open_web()
     realurl = page.url
     std_logger.debug(f"当前页面 URL: {mask_url_domain_last8(realurl)}")
 
-    start_index = 0
-    for i, step in enumerate(steps):
-        if step["match"] in realurl:
-            start_index = i
-            std_logger.info(f"检测到当前步骤: {step['name']}")
-            break
-    else:
-        error_exit("没有匹配的步骤，退出")
+    # 登录页之后的步骤（跳过 open_web，它已经执行了）
+    remaining_steps = steps[1:]
 
-    std_logger.info(f"从步骤 {start_index} 开始执行")
-
-    for i, step in enumerate(steps[start_index:], start=start_index):
+    for i, step in enumerate(remaining_steps, start=1):
         step_name = step.get("name", f"step_{i}")
         std_logger.info(f"执行步骤 {i}: {step_name}")
         try:
             await step["action"]()
             std_logger.debug(f"步骤 {step_name} 执行完成")
             await wait_for(5, 7)
-            capture_screenshot(f"{step_name}_{i}.png")
-            if i < len(steps) - 1:
+            await capture_screenshot(f"{step_name}_{i}.png")
+            if i < len(remaining_steps):
                 await wait_for(3)
         except SystemExit:
             raise
@@ -360,6 +356,7 @@ async def main():
 
 if __name__ == "__main__":
     if iargs.retry > 0:
+        success = 1
         for attempt in range(1, iargs.retry + 1):
             info += f"开始第 {attempt} 次尝试，共 {iargs.retry} 次机会\n"
             success = asyncio.run(main())
@@ -371,6 +368,7 @@ if __name__ == "__main__":
                 std_logger.debug(f"第 {attempt} 次执行失败")
                 if attempt < iargs.retry:
                     std_logger.debug("准备重试...")
+                    info += f"第 {attempt} 次失败，准备重试...\n"
                 else:
                     std_logger.debug("已达到最大重试次数")
         exit_process(success)
