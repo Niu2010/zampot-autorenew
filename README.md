@@ -1,0 +1,1 @@
+# zampot-autorenew
