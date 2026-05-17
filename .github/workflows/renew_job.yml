@@ -36,6 +36,8 @@ jobs:
           PASSWORD: ${{ secrets.PASSWORD }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_USERID: ${{ secrets.TG_USERID }}
+          CHROME_PROXY: ${{ secrets.CHROME_PROXY }}
+          SERVER_IDS: ${{ secrets.SERVER_IDS }}
         run: python zampto_server.py -r 3
 
       - name: 上传截图（调试用）
