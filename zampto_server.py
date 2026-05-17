@@ -208,33 +208,40 @@ async def open_server_tab():
 
     for sid in server_ids:
         s = f"{serverbaseurl}{sid}"
-        await page.goto(s, wait_until="networkidle")
-        await wait_for(3, 5)
+        await page.goto(s, wait_until="domcontentloaded")
+
+        # 等待 renew 按钮真正渲染出来，最多等 30 秒
+        try:
+            await page.wait_for_selector("a[onclick*='handleServerRenewal']", timeout=30000)
+        except Exception:
+            std_logger.debug(f"服务器 [{sid}] 页面未出现 renew 按钮，跳过")
+            info += f'⚠️ 服务器 [{sid}] 未找到续期按钮，可能已续期或无需续期\n'
+            await capture_screenshot(f"{sid}_no_btn.png")
+            continue
+
+        await wait_for(2, 3)
 
         try:
             renew_btn = page.locator("a[onclick*='handleServerRenewal']")
-            if await renew_btn.is_visible(timeout=15000):
-                std_logger.debug("找到 renew 按钮，点击")
-                await renew_btn.click()
-                await wait_for(3, 5)
-            else:
-                std_logger.debug("没找到 renew 按钮，无事发生")
-        except Exception:
-            std_logger.debug("没找到 renew 按钮，无事发生")
+            std_logger.debug("找到 renew 按钮，点击")
+            await renew_btn.click()
+            await wait_for(3, 5)
+        except Exception as e:
+            std_logger.debug(f"点击 renew 按钮失败: {e}")
 
         try:
             name_span = page.locator("span.server-name")
             await name_span.wait_for(timeout=15000)
-            server_name = await name_span.inner_html()
+            server_name = await name_span.inner_text()
             if server_name:
                 info += f'✅ 服务器 [{server_name}] 续期成功\n'
-                std_logger.info('✅ 服务器续期成功')
+                std_logger.info(f'✅ 服务器 [{server_name}] 续期成功')
                 await asyncio.sleep(5)
                 try:
                     left_time = page.locator('#nextRenewalTime')
-                    if await left_time.is_visible(timeout=10000):
-                        lt = await left_time.inner_html()
-                        info += f'🕒 [服务器: {server_name}] 存活期限：{lt}\n'
+                    await left_time.wait_for(timeout=10000)
+                    lt = await left_time.inner_text()
+                    info += f'🕒 [服务器: {server_name}] 存活期限：{lt}\n'
                 except Exception:
                     pass
             else:
