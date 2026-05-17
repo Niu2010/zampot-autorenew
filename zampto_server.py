@@ -204,25 +204,37 @@ async def open_server_tab():
     if not server_ids:
         error_exit("⚠️ SERVER_IDS 环境变量未设置，请在 Secrets 中添加服务器 ID，例如：6119 或 6119,6120")
 
+    # 必须先经过 overview 页面建立正确的 session
+    std_logger.info("先访问 overview 页面建立 session")
+    await page.goto("https://dash.zampto.net/overview", wait_until="domcontentloaded")
+    await wait_for(5, 8)
+
     std_logger.info(f"找到 {len(server_ids)} 台服务器：{server_ids}")
 
     for sid in server_ids:
         s = f"{serverbaseurl}{sid}"
+        std_logger.info(f"访问服务器页面：{s}")
         await page.goto(s, wait_until="domcontentloaded")
 
-        # 等待 renew 按钮真正渲染出来，最多等 30 秒
+        # 等待 renew 按钮渲染出来，最多等 30 秒
         try:
-            await page.wait_for_selector('a.action-purple', timeout=30000)
+            await page.wait_for_selector("a.action-purple", timeout=30000)
         except Exception:
-            std_logger.debug(f"服务器 [{sid}] 页面未出现 renew 按钮，跳过")
-            info += f'⚠️ 服务器 [{sid}] 未找到续期按钮，可能已续期或无需续期\n'
+            # 截图并输出 HTML 帮助调试
             await capture_screenshot(f"{sid}_no_btn.png")
+            try:
+                html = await page.content()
+                std_logger.debug(f"[DEBUG] 页面 URL: {page.url}")
+                std_logger.debug(f"[DEBUG] 页面 HTML 前 2000 字符:\n{html[:2000]}")
+            except Exception:
+                pass
+            info += f'⚠️ 服务器 [{sid}] 未找到续期按钮\n'
             continue
 
         await wait_for(2, 3)
 
         try:
-            renew_btn = page.locator('a.action-purple')
+            renew_btn = page.locator("a.action-purple")
             std_logger.debug("找到 renew 按钮，点击")
             await renew_btn.click()
             await wait_for(3, 5)
