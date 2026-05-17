@@ -35,9 +35,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 std_logger = logging.getLogger(__name__)
 
 # 登录信息
-# 注意：避免使用 USERNAME，因为 Linux/GitHub Actions 中该变量为系统保留变量
-# 在 workflow 中请将 Secret 名改为 ZAMPTO_USERNAME，env 中映射为 ZAMPTO_USERNAME
-username = os.getenv("ZAMPTO_USERNAME")
+username = os.getenv("ZAMPTO_USER")  # workflow 中将 secrets.USERNAME 映射为 ZAMPTO_USER，避免与系统变量冲突
 password = os.getenv("PASSWORD")
 
 # 通知
@@ -69,8 +67,8 @@ def error_exit(msg):
 
 
 if not username or not password:
-    std_logger.warning("💡 请设置环境变量 ZAMPTO_USERNAME 和 PASSWORD")
-    error_exit("❌ 缺少必要的环境变量 ZAMPTO_USERNAME 或 PASSWORD。")
+    std_logger.warning("💡 请设置环境变量 USERNAME 和 PASSWORD")
+    error_exit("❌ 缺少必要的环境变量 USERNAME 或 PASSWORD。")
 
 if not tgbot_token:
     std_logger.warning("⚠️ 环境变量 TG_TOKEN 未设置，Telegram 通知功能将无法使用。")
