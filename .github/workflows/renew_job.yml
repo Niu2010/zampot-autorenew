@@ -19,6 +19,67 @@ jobs:
           fi
           echo "✅ 账号信息已设置"
 
+      # ── 新增：安装 Xray 并启动本地 SOCKS5 ──────────────────────
+      - name: 安装并启动 Xray
+        env:
+          VLESS_SERVER: ${{ secrets.VLESS_SERVER }}
+          VLESS_UUID: ${{ secrets.VLESS_UUID }}
+          VLESS_PUBKEY: ${{ secrets.VLESS_PUBKEY }}
+          VLESS_SHORTID: ${{ secrets.VLESS_SHORTID }}
+        run: |
+          wget -q https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
+          unzip -q Xray-linux-64.zip -d xray-bin
+
+          cat > xray-config.json << EOF
+          {
+            "log": { "loglevel": "warning" },
+            "inbounds": [
+              {
+                "listen": "127.0.0.1",
+                "port": 10808,
+                "protocol": "socks",
+                "settings": { "udp": true }
+              }
+            ],
+            "outbounds": [
+              {
+                "protocol": "vless",
+                "settings": {
+                  "vnext": [{
+                    "address": "${VLESS_SERVER}",
+                    "port": 443,
+                    "users": [{
+                      "id": "${VLESS_UUID}",
+                      "encryption": "none",
+                      "flow": ""
+                    }]
+                  }]
+                },
+                "streamSettings": {
+                  "network": "tcp",
+                  "security": "reality",
+                  "realitySettings": {
+                    "serverName": "www.icloud.com",
+                    "fingerprint": "chrome",
+                    "show": false,
+                    "publicKey": "${VLESS_PUBKEY}",
+                    "shortId": "${VLESS_SHORTID}",
+                    "spiderX": ""
+                  }
+                }
+              }
+            ]
+          }
+          EOF
+
+          chmod +x xray-bin/xray
+          ./xray-bin/xray -config xray-config.json &
+          sleep 4
+
+          # 验证代理是否通
+          curl --socks5 127.0.0.1:10808 -s --max-time 10 https://www.google.com -o /dev/null \
+            && echo "✅ Xray 代理连通" || echo "⚠️ 代理连接失败，继续尝试"
+
       - name: 设置 Python
         uses: actions/setup-python@v5
         with:
@@ -27,17 +88,13 @@ jobs:
       - name: 安装依赖
         run: pip install -r requirements.txt
 
-      - name: 安装 CloakBrowser 浏览器二进制
-        run: python -m cloakbrowser install
-
       - name: 运行续期脚本
         env:
-          ZAMPTO_USER: ${{ secrets.USERNAME }}
+          USERNAME: ${{ secrets.USERNAME }}
           PASSWORD: ${{ secrets.PASSWORD }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_USERID: ${{ secrets.TG_USERID }}
-          CHROME_PROXY: ${{ secrets.CHROME_PROXY }}
-          SERVER_IDS: ${{ secrets.SERVER_IDS }}
+          CHROME_PROXY: "socks5://127.0.0.1:10808"
         run: python zampto_server.py -r 3
 
       - name: 上传截图（调试用）
