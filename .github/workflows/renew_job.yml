@@ -2,7 +2,7 @@ name: Zampto Renew
 on:
   workflow_dispatch:
   schedule:
-    - cron: '28 5 * * *'  # 每天 UTC 05:28（北京时间 13:28）
+    - cron: '28 5 * * *'
 
 jobs:
   run-zampto:
@@ -13,13 +13,12 @@ jobs:
 
       - name: 检查 Secrets 是否设置
         run: |
-          if [ -z "${{ secrets.USERNAME }}" ] || [ -z "${{ secrets.PASSWORD }}" ]; then
+          if [ -z "${{ secrets.ZAMPTO_USERNAME }}" ] || [ -z "${{ secrets.ZAMPTO_PASSWORD }}" ]; then
             echo "❌ USERNAME 或 PASSWORD 未设置，终止执行。"
             exit 1
           fi
           echo "✅ 账号信息已设置"
 
-      # ── 新增：安装 Xray 并启动本地 SOCKS5 ──────────────────────
       - name: 安装并启动 Xray
         env:
           VLESS_SERVER: ${{ secrets.VLESS_SERVER }}
@@ -75,10 +74,8 @@ jobs:
           chmod +x xray-bin/xray
           ./xray-bin/xray -config xray-config.json &
           sleep 4
-
-          # 验证代理是否通
           curl --socks5 127.0.0.1:10808 -s --max-time 10 https://www.google.com -o /dev/null \
-            && echo "✅ Xray 代理连通" || echo "⚠️ 代理连接失败，继续尝试"
+            && echo "✅ Xray 代理连通" || echo "⚠️ 代理连接失败"
 
       - name: 设置 Python
         uses: actions/setup-python@v5
@@ -90,8 +87,8 @@ jobs:
 
       - name: 运行续期脚本
         env:
-          USERNAME: ${{ secrets.USERNAME }}
-          PASSWORD: ${{ secrets.PASSWORD }}
+          USERNAME: ${{ secrets.ZAMPTO_USERNAME }}
+          PASSWORD: ${{ secrets.ZAMPTO_PASSWORD }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_USERID: ${{ secrets.TG_USERID }}
           CHROME_PROXY: "socks5://127.0.0.1:10808"
