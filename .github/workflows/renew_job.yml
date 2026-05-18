@@ -89,8 +89,9 @@ jobs:
         env:
           USERNAME: ${{ secrets.ZAMPTO_USERNAME }}
           PASSWORD: ${{ secrets.ZAMPTO_PASSWORD }}
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_USERID: ${{ secrets.TG_USERID }}
+          run: |
+          echo "USERNAME长度: ${#USERNAME}"
+          echo "PASSWORD长度: ${#PASSWORD}"
           CHROME_PROXY: "socks5://127.0.0.1:10808"
         run: python zampto_server.py -r 3
 
